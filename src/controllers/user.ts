@@ -1,13 +1,15 @@
-const User = require("../models/user");
-const bcrypt = require("bcrypt");
-const Product = require("../models/product");
-const Cart = require("../models/cart");
-const Order = require("../models/order");
-const Seller = require("../models/seller");
-const NotificationController = require("./product");
-const errorHandler = require("../middlewares/errorHandler");
+import { Request, Response } from "express";
+import bcrypt from "bcrypt";
+import User from "../models/user";
+import Product from "../models/product";
+import Cart, { CartDocument } from "../models/cart";
+import Order from "../models/order";
+import Seller from "../models/seller";
+import * as NotificationController from "./product";
+import { ErrorHandler, ControllerResponse } from "../middlewares/errorHandler";
+import { Document, Types } from "mongoose";
 
-const saveAddress = async (req, res, Model) => {
+const saveAddress = async (req: Request, res: Response, Model) => {
   try {
     const { address } = req.body;
     const entityId = req.user;
@@ -16,22 +18,22 @@ const saveAddress = async (req, res, Model) => {
       { address: address },
       { new: true }
     );
-    res.status(200).json(updatedEntity);
+    ControllerResponse(res, 200, updatedEntity);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-const changeInfo = async (req, res, Model) => {
+const changeInfo = async (req: Request, res: Response, Model) => {
   try {
     const entityId = req.params.id;
     const { name, email, newPassword } = req.body;
     if (req.user._id !== entityId) {
-      return res.status(403).json({ message: "Access denied" });
+      ErrorHandler(res, 403, "Access denied");
     }
     const entity = await Model.findById(entityId);
     if (!entity) {
-      return res.status(404).json({ message: "Entity not found" });
+      ErrorHandler(res, 404, "Entity not found");
     }
     if (name) {
       entity.name = name;
@@ -44,71 +46,69 @@ const changeInfo = async (req, res, Model) => {
       entity.password = hashedPassword;
     }
     await entity.save();
-    res
-      .status(200)
-      .json({ message: "Entity information updated successfully" });
+    ControllerResponse(res, 200, "Entity information updated successfully");
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.saveUserAddress = (req, res) => {
+export const saveUserAddress = (req: Request, res: Response) => {
   saveAddress(req, res, User);
 };
 
-exports.changeUserInfo = (req, res) => {
+export const changeUserInfo = (req: Request, res: Response) => {
   changeInfo(req, res, User);
 };
 
-exports.saveSellerAddress = (req, res) => {
+export const saveSellerAddress = (req: Request, res: Response) => {
   saveAddress(req, res, Seller);
 };
 
-exports.changeSellerInfo = (req, res) => {
+export const changeSellerInfo = (req: Request, res: Response) => {
   changeInfo(req, res, Seller);
 };
 
-exports.getUserInfo = async (req, res) => {
+export const getUserInfo = async (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      ErrorHandler(res, 404, "User not found");
     }
-    res.status(200).json(user);
+    ControllerResponse(res, 200, user);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.getCartContents = async (req, res) => {
+export const getCartContents = async (req: Request, res: Response) => {
   try {
     const userId = req.user;
-    const userCart = await Cart.findOne({ user: userId }).populate(
-      "items.product"
-    );
+    const userCart: CartDocument | null = await Cart.findOne({
+      user: userId,
+    }).populate("items.product");
     if (!userCart) {
-      return res.status(404).json({ message: "Cart not found for the user" });
+      return ErrorHandler(res, 404, "Cart not found for the user");
     }
-    res.status(200).json(userCart);
+    return ControllerResponse(res, 200, userCart);
   } catch (err) {
-    errorHandler(err, req, res);
+    return ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.addToCart = async (req, res) => {
+export const addToCart = async (req: Request, res: Response) => {
   try {
     const { id } = req.body;
     const product = await Product.findById(id);
     const userId = req.user;
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      ErrorHandler(res, 404, "Product not found");
     }
-    let userCart = await Cart.findOne({ user: userId });
+    let userCart: CartDocument | null = await Cart.findOne({ user: userId });
     if (!userCart) {
       userCart = new Cart({
         user: userId,
-        items: [{ product, quantity: 1 }],
+        items: [{ product: product.toObject(), quantity: 1 }],
       });
     } else {
       const existingItem = userCart.items.find((item) =>
@@ -117,27 +117,27 @@ exports.addToCart = async (req, res) => {
       if (existingItem) {
         existingItem.quantity += 1;
       } else {
-        userCart.items.push({ product, quantity: 1 });
+        userCart.items.push({ product: product.toObject(), quantity: 1 });
       }
     }
     await userCart.save();
-    res.status(200).json(userCart);
+    ControllerResponse(res, 200, userCart);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.removeFromCart = async (req, res) => {
+export const removeFromCart = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const product = await Product.findById(id);
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      ErrorHandler(res, 404, "Product not found");
     }
     const userId = req.user;
     let userCart = await Cart.findOne({ user: userId });
     if (!userCart) {
-      return res.status(404).json({ message: "Cart not found for the user" });
+      ErrorHandler(res, 404, "Cart not found for the user");
     }
     const cartItemIndex = userCart.items.findIndex((item) =>
       item.product.equals(product._id)
@@ -149,23 +149,23 @@ exports.removeFromCart = async (req, res) => {
         userCart.items[cartItemIndex].quantity -= 1;
       }
       await userCart.save();
-      res.status(200).json(userCart);
+      ControllerResponse(res, 200, userCart);
     } else {
-      res.status(404).json({ message: "Product not found in the cart" });
+      ErrorHandler(res, 404, "Product not found in the cart");
     }
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.order = async (req, res) => {
+export const order = async (req: Request, res: Response) => {
   try {
     const { totalPrice } = req.body;
     const userId = req.user;
     const userCart = await Cart.findOne({ user: userId });
     const user = await User.findById(userId);
     if (!userCart || userCart.items.length === 0) {
-      return res.status(400).json({ message: "Cart is empty" });
+      ErrorHandler(res, 404, "Cart is empty");
     }
     let totalQuantity = 0;
     const productsToUpdate = [];
@@ -173,7 +173,7 @@ exports.order = async (req, res) => {
     for (const cartItem of userCart.items) {
       const product = await Product.findById(cartItem.product);
       if (!product) {
-        return res.status(400).json({ message: "Product not found" });
+        ErrorHandler(res, 404, "Product not found");
       }
       if (product.quantity < cartItem.quantity) {
         return res
@@ -183,6 +183,7 @@ exports.order = async (req, res) => {
       totalQuantity += cartItem.quantity;
       productsToUpdate.push({ product, quantity: cartItem.quantity });
       const sellerId = product.seller;
+      console.log(user);
       sellerNotifications.push({
         sellerId,
         userId,
@@ -193,7 +194,7 @@ exports.order = async (req, res) => {
       });
     }
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      ErrorHandler(res, 404, "User not found");
     }
     const shippingAddress = `${user.address.addressline1} ${user.address.addressline2}, ${user.address.city}, ${user.address.state}, ${user.address.postalCode}`;
     userCart.items = [];
@@ -215,68 +216,66 @@ exports.order = async (req, res) => {
       await NotificationController.createNotification(
         notificationData.sellerId,
         notificationData.userId,
-        savedOrder._id,
+        savedOrder._id.toString(),
         notificationData.productId,
         `New order for ${notificationData.productName} (${notificationData.quantity} units) from ${notificationData.userAddress}`
       );
     }
 
     await userCart.save();
-    res.status(200).json(savedOrder);
+    ControllerResponse(res, 200, savedOrder);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.getSellerNotifications = async (req, res) => {
+export const getSellerNotifications = async (req: Request, res: Response) => {
   try {
-    const sellerId = req.user;
+    const sellerId = req.user.toString();
     const notifications = await NotificationController.getSellerNotifications(
       sellerId
     );
-    res.status(200).json(notifications);
-  } catch (error) {
-    errorHandler(err, req, res);
+    ControllerResponse(res, 200, notifications);
+  } catch (err) {
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.myOrders = async (req, res) => {
+export const myOrders = async (req: Request, res: Response) => {
   try {
     const orders = await Order.find({ userId: req.user });
-    res.status(200).json(orders);
+    ControllerResponse(res, 200, orders);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.cancelOrder = async (req, res) => {
+export const cancelOrder = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const order = await Order.findById(id);
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      ErrorHandler(res, 404, "Order not found");
     }
     if (order.status !== "Pending") {
-      return res
-        .status(400)
-        .json({ message: "This order cannot be cancelled" });
+      ErrorHandler(res, 400, "This order cannot be cancelled");
     }
     for (const item of order.products) {
       const product = await Product.findById(item.product);
       if (!product) {
-        return res.status(404).json({ message: "Product not found" });
+        ErrorHandler(res, 404, "Product not found");
       }
       product.quantity += item.quantity;
       await product.save();
     }
     await Order.findByIdAndDelete(id);
-    res.status(200).json({ message: "Order canceled successfully" });
+    ControllerResponse(res, 200, "Order canceled successfully");
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.getSellerOrderDetails = async (req, res) => {
+export const getSellerOrderDetails = async (req: Request, res: Response) => {
   try {
     const sellerId = req.user._id;
     const { id } = req.params;
@@ -291,25 +290,25 @@ exports.getSellerOrderDetails = async (req, res) => {
         populate: {
           path: "seller",
           model: "Seller",
-          select: "name email",
+          select: "_id name email",
         },
       });
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      ErrorHandler(res, 404, "Order not found");
     }
     const hasMatchingProduct = order.products.some((product) =>
-      product.product.seller._id.equals(sellerId)
+      product.product[0].seller._id.equals(sellerId)
     );
     if (!hasMatchingProduct) {
-      return res.status(403).json({ message: "Access denied" });
+      ErrorHandler(res, 403, "Access denied");
     }
-    res.status(200).json(order);
+    ControllerResponse(res, 200, order);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.updateOrderStatus = async (req, res) => {
+export const updateOrderStatus = async (req: Request, res: Response) => {
   try {
     const sellerId = req.user._id;
     const { id } = req.params;
@@ -328,30 +327,27 @@ exports.updateOrderStatus = async (req, res) => {
           select: "name email",
         },
       });
-
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      ErrorHandler(res, 404, "Order not found");
     }
     const hasMatchingProduct = order.products.some((product) =>
-      product.product.seller._id.equals(sellerId)
+      product.product[0].seller._id.equals(sellerId)
     );
-
     if (!hasMatchingProduct) {
-      return res.status(403).json({ message: "Access denied" });
+      ErrorHandler(res, 403, "Access denied");
     }
-
     order.status = status;
     await order.save();
 
-    res.status(200).json({ message: "Order status updated successfully" });
+    ControllerResponse(res, 200, "Order status updated successfully");
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.getSellerOrders = async (req, res) => {
+export const getSellerOrders = async (req: Request, res: Response) => {
   try {
-    const sellerId = req.user._id; 
+    const sellerId = req.user._id;
     const sellerProducts = await Product.find({ seller: sellerId });
     const productIds = sellerProducts.map((product) => product._id);
     const sellerOrders = await Order.find({
@@ -361,26 +357,11 @@ exports.getSellerOrders = async (req, res) => {
       .populate("products.product", "title discountedPrice");
 
     if (!sellerOrders || sellerOrders.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "No orders found for this seller" });
+      ErrorHandler(res, 404, "No orders found for this seller");
     }
 
-    res.status(200).json(sellerOrders);
+    ControllerResponse(res, 200, sellerOrders);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
-
-// //This controller need to be put at correct place
-// exports.changeStatus = async (req, res) => {
-//     try {
-//         const { id, status } = req.body;
-//         let order = await Order.findById(id);
-//         order.status = status;
-//         order = await order.save();
-//         res.status(200).json(order);
-//     } catch (err) {
-//         res.status(500).json({message: 'Internal server error'})
-//     }
-// }

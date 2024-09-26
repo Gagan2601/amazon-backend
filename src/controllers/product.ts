@@ -1,18 +1,26 @@
-const Product = require("../models/product");
-const Seller = require("../models/seller");
-const Review = require("../models/review");
-const Notification = require("../models/notification");
-const errorHandler = require("../middlewares/errorHandler");
-const stripe = require("stripe")(
-  "sk_test_51Nqw75SCRj0uEtF7tjARAuGK6ISSGa0FfdWaSKqrHfhZO294ntO1JXvKuGmNfqEFCWCJAhgGdC2Vf0GdypDDId3Q00ha0ocO0T"
-);
+import { Request, Response } from "express";
+import Product from "../models/product";
+import Seller from "../models/seller";
+import Review from "../models/review";
+import Notification from "../models/notification";
+import { ErrorHandler, ControllerResponse } from "../middlewares/errorHandler";
+import stripe from "stripe";
+import dotenv from "dotenv";
 
-exports.addProduct = async (req, res) => {
+dotenv.config();
+
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || "";
+const stripeClient = new stripe(stripeSecretKey, {
+  apiVersion: "2022-11-15",
+});
+
+export const addProduct = async (req: Request, res: Response) => {
   try {
     const seller = await Seller.findById(req.user);
     if (!seller) {
-      return res.status(403).json({ message: "Seller not found" });
+      return ErrorHandler(res, 403, "Seller not found");
     }
+
     const {
       title,
       description,
@@ -22,6 +30,7 @@ exports.addProduct = async (req, res) => {
       discountedPrice,
       category,
     } = req.body;
+
     const newProduct = new Product({
       title,
       description,
@@ -32,28 +41,34 @@ exports.addProduct = async (req, res) => {
       category,
       seller: seller._id,
     });
+
     await newProduct.save();
-    seller.products.push(newProduct);
+    seller.products.push(newProduct as any);
     await seller.save();
-    res.status(201).json({ message: "Product added successfully" });
+    ControllerResponse(res, 201, "Product added successfully");
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.updateProduct = async (req, res) => {
+export const updateProduct = async (req: Request, res: Response) => {
   try {
     const seller = await Seller.findById(req.user);
     if (!seller) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to update products" });
+      return ErrorHandler(
+        res,
+        403,
+        "You do not have permission to update products"
+      );
     }
+
     const productId = req.params.productId;
     const product = await Product.findById(productId);
+
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return ErrorHandler(res, 404, "Product not found");
     }
+
     const {
       title,
       description,
@@ -63,6 +78,7 @@ exports.updateProduct = async (req, res) => {
       discountedPrice,
       category,
     } = req.body;
+
     if (title) {
       product.title = title;
     }
@@ -84,79 +100,92 @@ exports.updateProduct = async (req, res) => {
     if (category) {
       product.category = category;
     }
+
     await product.save();
-    res.status(200).json({ message: "Product updated successfully" });
+
+    ControllerResponse(res, 200, "Product updated successfully");
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.deleteProduct = async (req, res) => {
+export const deleteProduct = async (req: Request, res: Response) => {
   try {
     const seller = await Seller.findById(req.user);
     if (!seller) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to delete products" });
+      return ErrorHandler(
+        res,
+        403,
+        "You do not have permission to delete products"
+      );
     }
+
     const productId = req.params.productId;
     const product = await Product.findById(productId);
+
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return ErrorHandler(res, 404, "Product not found");
     }
+
     await product.deleteOne({ _id: productId });
-    res.status(200).json({ message: "Product deleted successfully" });
+    ControllerResponse(res, 200, "Product deleted successfully");
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.viewProduct = async (req, res) => {
+export const viewProduct = async (req: Request, res: Response) => {
   try {
     const products = await Product.find().populate({
       path: "seller",
       select: "name email address",
     });
-    res.status(200).json(products);
+    ControllerResponse(res, 200, products);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.getSellerProducts = async (req, res) => {
+export const getSellerProducts = async (req: Request, res: Response) => {
   try {
     const seller = await Seller.findById(req.user);
     if (!seller) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to view products" });
+      return ErrorHandler(
+        res,
+        404,
+        "You do not have permission to view products"
+      );
     }
+
     const sellerProducts = await Product.find({ seller: seller._id });
-    res.status(200).json(sellerProducts);
+    ControllerResponse(res, 200, sellerProducts);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.searchProduct = async (req, res) => {
+export const searchProduct = async (req: Request, res: Response) => {
   try {
     const products = await Product.find({
       title: { $regex: req.params.name, $options: "i" },
     });
-    res.status(200).json(products);
+    ControllerResponse(res, 200, products);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.reviewProduct = async (req, res) => {
+export const reviewProduct = async (req: Request, res: Response) => {
   try {
     const { id, rating, comment, images } = req.body;
     const userId = req.user;
+
     let product = await Product.findById(id).populate("reviews");
+
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return ErrorHandler(res, 404, "Product not found");
     }
+
     const newReview = new Review({
       userId,
       product: id,
@@ -165,38 +194,42 @@ exports.reviewProduct = async (req, res) => {
       images,
       date: new Date(),
     });
+
     await newReview.save();
     product.reviews.push(newReview._id);
     await product.save();
-    res.status(200).json(product);
+
+    ControllerResponse(res, 200, product);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.getReviewsByProductId = async (req, res) => {
+export const getReviewsByProductId = async (req: Request, res: Response) => {
   try {
     const productId = req.params.id;
     const product = await Product.findById(productId).populate("reviews");
+
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return ErrorHandler(res, 404, "Product not found");
     }
-    res.status(200).json({ reviews: product.reviews });
+
+    ControllerResponse(res, 200, { reviews: product.reviews });
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.checkout = async (req, res) => {
+export const checkout = async (req: Request, res: Response) => {
   try {
     const { productId, quantity } = req.body;
     const product = await Product.findById(productId);
 
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return ErrorHandler(res, 404, "Product not found");
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeClient.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [
         {
@@ -216,32 +249,41 @@ exports.checkout = async (req, res) => {
       }&address=${encodeURIComponent("Your Shipping Address")}`,
       cancel_url: "http://localhost:3000/user/cart",
     });
-    res.json({ sessionId: session.id });
+
+    ControllerResponse(res, 200, { sessionId: session.id });
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.dealoftheday = async (req, res) => {
+export const dealoftheday = async (req: Request, res: Response) => {
   try {
     const products = await Product.find({}).populate("reviews");
-    const sortedProducts = products.sort((a, b) => {
+    const productsWithReviews = products.map((product) => ({
+      ...product.toObject(),
+      reviews: (product.reviews as any[]).map((review) => ({
+        rating: review.rating,
+      })),
+    }));
+
+    const sortedProducts = productsWithReviews.sort((a, b) => {
       const aSum = a.reviews.reduce((sum, review) => sum + review.rating, 0);
       const bSum = b.reviews.reduce((sum, review) => sum + review.rating, 0);
       return aSum < bSum ? 1 : -1;
     });
-    res.status(200).json(sortedProducts[0]);
+
+    ControllerResponse(res, 200, sortedProducts[0]);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.createNotification = async (
-  sellerId,
-  userId,
-  orderId,
-  productId,
-  message
+export const createNotification = async (
+  sellerId: string,
+  userId: string,
+  orderId: string,
+  productId: string,
+  message?: string
 ) => {
   try {
     const notification = new Notification({
@@ -251,13 +293,14 @@ exports.createNotification = async (
       product: productId,
       message: message || "You have a new order for your product.",
     });
+
     await notification.save();
   } catch (error) {
     console.error(error);
   }
 };
 
-exports.getSellerNotifications = async (sellerId) => {
+export const getSellerNotifications = async (sellerId: string) => {
   try {
     const notifications = await Notification.find({ seller: sellerId }).sort(
       "-createdAt"
@@ -269,47 +312,51 @@ exports.getSellerNotifications = async (sellerId) => {
   }
 };
 
-exports.filterAndSortProducts = async (req, res) => {
+export const filterAndSortProducts = async (req: Request, res: Response) => {
   try {
     const { category, minPrice, maxPrice, sortBy, sortOrder } = req.query;
-    let query = [];
+    let query: any = {};
+
     if (category) {
       query.category = category;
     }
     if (minPrice && maxPrice) {
       query.discountedPrice = {
-        $gte: parseFloat(minPrice),
-        $lte: parseFloat(maxPrice),
+        $gte: parseFloat(minPrice as string),
+        $lte: parseFloat(maxPrice as string),
       };
     } else if (minPrice) {
-      query.discountedPrice = { $gte: parseFloat(minPrice) };
+      query.discountedPrice = { $gte: parseFloat(minPrice as string) };
     } else if (maxPrice) {
-      query.discountedPrice = { $lte: parseFloat(maxPrice) };
+      query.discountedPrice = { $lte: parseFloat(maxPrice as string) };
     }
-    let sortQuery = {};
+
+    let sortQuery: any = {};
+
     if (sortBy) {
-      sortQuery[sortBy] = sortOrder === "asc" ? 1 : -1;
+      sortQuery[sortBy as string] = sortOrder === "asc" ? 1 : -1;
     }
+
     const products = await Product.find(query)
       .sort(sortQuery)
       .populate("seller");
-    res.status(200).json(products);
+    ControllerResponse(res, 200, products);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
 };
 
-exports.fetchProductDetails = async (req, res) => {
+export const fetchProductDetails = async (req: Request, res: Response) => {
   try {
-    const {productId} = req.params;
+    const { productId } = req.params;
     const product = await Product.findById(productId);
 
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return ErrorHandler(res, 404, "Product not found");
     }
 
-    res.status(200).json(product);
+    ControllerResponse(res, 200, product);
   } catch (err) {
-    errorHandler(err, req, res);
+    ErrorHandler(res, 500, "Internal Server Error", err);
   }
-}
+};
